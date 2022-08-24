@@ -1,0 +1,126 @@
+---
+# check validation for epel.
+- name: validate that the Extra Repo is configured
+  command: "yum repolist"
+  args:
+    warn: false
+  become: true
+  become_method: sudo
+  register: repo_list
+  changed_when: false
+  failed_when: "'extras' not in repo_list.stdout and 'Epel' not in repo_list.stdout and 'AppStream' not in repo_list.stdout"
+
+#runs this task only for rehl 8 else it fails
+- name: fail if not RHELOS8
+  fail: msg="This isn't a RHEL 8 or higher machine"
+  when:
+    - ansible_facts['distribution'] != "RHELOS"
+    - ansible_facts['distribution_major_version'] > "8"
+
+# Install docker engine
+- name: Install yum-utils
+  become: true
+  become_user: root
+  yum: pkg=yum-utils state=present
+
+#checking the docker repo in repolist
+- name: Check Docker Repo
+  become: true
+  become_user: root
+  command: yum repolist
+  changed_when: false
+  register: repolist
+
+#installing the docker repo
+- name: Add the docker repository
+  become: true
+  become_user: root
+  command: yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+  when: "'docker-ce' not in repolist.stdout"
+
+#installing the required docker packages
+- name: Install required packages
+  become: true
+  become_user: root
+  yum: pkg={{ item.pkg }} state=present
+  with_items:
+    - { pkg: 'docker-ce' }
+    - { pkg: 'docker-ce-cli' }
+    - { pkg: 'containerd.io' }
+    - { pkg: 'python3-pip' }
+  notify:
+    - reload systemctl
+    - restart docker
+
+- name: Check docker module for python
+  command: pip3 show docker
+  register: docker_module
+  changed_when: false
+  ignore_errors: true
+
+# Install the docker module for python for use with Ansible
+- name: Install docker module for python
+  become: true
+  become_user: root
+  command: pip3 install docker
+  when: "'Name: docker' not in docker_module.stdout"
+
+- name: Enable docker service and ensure it is not masked
+  systemd:
+    name: docker
+    enabled: true
+    masked: false
+
+# Start the Docker service if it's running
+- name: Make sure the docker service is started
+  systemd:
+    state: started
+    name: docker
+
+#docker prune
+- name: Prune everything (including non-dangling images)
+  docker_prune:
+    containers: true
+    images: true
+    images_filters:
+      dangling: false
+    networks: true
+    volumes: true
+    builder_cache: true
+    
+# add docker daemon.json
+- name: add the docker daemon.json
+  become: true
+  become_user: root
+  template: src=daemon.json.j2 dest=/etc/docker/daemon.json owner=root group=root mode=0644
+  notify:
+    - reload systemctl
+    - restart docker
+
+#  establish credentials to the digital Ops Repo Jfrog CR account
+- name: Check to see if the docker config file exists
+  stat:
+    path: "{{ ansible_env.HOME }}/.docker/config.json"
+  register: config_file
+
+- name: Check to see if the jfrog login exists
+  lineinfile:
+    path: "{{ ansible_env.HOME }}/.docker/config.json"
+    line: '          "{{ registry_server }}": {'
+    state: present
+  check_mode: true
+  register: docker_login
+  when: config_file.stat.exists
+
+
+- name: create authentication credentials for jfrog Repo account
+  docker_login:
+    registry_url: "{{ registry_server }}"
+    username: "{{ registry_user }}"
+    password: "{{ registry_pass }}"
+    email: "eCommOperations@westjet.com@westjet.com"
+    reauthorize: true
+  become: true
+  become_method: sudo
+  when: (docker_login is defined and docker_login.msg is defined and docker_login.msg == "line added") or (config_file.stat.exists == false)
+

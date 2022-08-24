@@ -1,0 +1,30 @@
+{
+    "experimental": false,
+    "live-restore": true,
+    "log-driver": "json-file",
+    "log-opts": {
+      "max-size": "10m",
+      "max-file":"5",
+      "labels": "backendconfig",
+      "env": "{{ env }}"
+    },
+    "mtu": 0,
+    "max-concurrent-downloads": 3,
+    "max-concurrent-uploads": 5,
+    "default-shm-size": "64M",
+    "shutdown-timeout": 15,
+    "debug": false,
+    "log-level": "",
+    "tls": false,
+    "tlscacert": "",
+    "tlscert": "",
+    "tlskey": "",
+    "default-ulimits": {
+      "nofile": {
+        "Name": "nofile",
+        "Hard": 64000,
+        "Soft": 64000
+      }
+    },
+    "default-runtime": "runc"
+  }
